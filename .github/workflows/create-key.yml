@@ -1,0 +1,38 @@
+name: Buat Kunci Penandatangan
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  keygen:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - name: Buat keystore
+        env:
+          KS_PASS: ${{ secrets.KEYSTORE_PASSWORD }}
+        run: |
+          if [ "${#KS_PASS}" -lt 20 ]; then
+            echo "Secret KEYSTORE_PASSWORD belum dibuat atau kurang dari 20 karakter"; exit 1
+          fi
+          if [ -f signing/nusawallet.jks ]; then
+            echo "Keystore sudah ada, tidak dibuat ulang"; exit 1
+          fi
+          mkdir -p signing
+          keytool -genkeypair -keystore signing/nusawallet.jks -storetype PKCS12 \
+            -alias nusawallet -keyalg RSA -keysize 4096 -validity 36500 \
+            -storepass "$KS_PASS" -keypass "$KS_PASS" \
+            -dname "CN=Nusa Wallet, O=Nusachain, C=ID"
+      - name: Simpan ke repository
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add signing/nusawallet.jks
+          git commit -m "Tambah keystore penandatanganan"
+          git push
