@@ -1,0 +1,63 @@
+name: Rilis APK
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Nomor versi, contoh 1.0.1"
+        required: true
+      notes:
+        description: "Catatan update (tampil di dialog aplikasi)"
+        required: false
+        default: ""
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Siapkan nomor versi
+        id: ver
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          VER="${INPUT_VERSION#v}"
+          if ! echo "$VER" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "Format versi harus angka.angka.angka, contoh 1.0.1"; exit 1
+          fi
+          IFS='.' read -r MA MI PA <<< "$VER"
+          echo "name=$VER" >> "$GITHUB_OUTPUT"
+          echo "date=$(date -u +%F)" >> "$GITHUB_OUTPUT"
+          echo "code=$(( MA * 10000 + MI * 100 + PA ))" >> "$GITHUB_OUTPUT"
+      - name: Cek keystore
+        run: test -f signing/nusawallet.jks || { echo "Jalankan dulu workflow 'Buat Kunci Penandatangan'"; exit 1; }
+      - run: unzip -q NusaWallet-Android.zip -d proj
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: 8.2.1
+      - name: Build APK rilis
+        working-directory: proj
+        env:
+          KEYSTORE_FILE: ${{ github.workspace }}/signing/nusawallet.jks
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: nusawallet
+        run: >
+          gradle assembleRelease --no-daemon
+          -PappVersionName=${{ steps.ver.outputs.name }}
+          -PappVersionCode=${{ steps.ver.outputs.code }}
+          -PappReleaseDate=${{ steps.ver.outputs.date }}
+          -PgithubRepo=${{ github.repository }}
+      - name: Ganti nama APK
+        run: cp proj/app/build/outputs/apk/release/app-release.apk "NusaWallet-${{ steps.ver.outputs.name }}.apk"
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.ver.outputs.name }}
+          name: Nusa Wallet v${{ steps.ver.outputs.name }}
+          body: ${{ inputs.notes }}
+          files: NusaWallet-*.apk
